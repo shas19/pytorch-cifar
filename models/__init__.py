@@ -1,4 +1,5 @@
 from .vgg import *
+from .alexnet import *
 from .dpn import *
 from .lenet import *
 from .senet import *

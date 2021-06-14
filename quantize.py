@@ -27,34 +27,47 @@ transform_test = transforms.Compose([
 testset = torchvision.datasets.CIFAR10(
     root='./data', train=False, download=True, transform=transform_test)
 testloader = torch.utils.data.DataLoader(
-    testset, batch_size=100, shuffle=False, num_workers=2)
+    testset, batch_size=500, shuffle=False, num_workers=2)
 
 # classes = ('plane', 'car', 'bird', 'cat', 'deer',
 #            'dog', 'frog', 'horse', 'ship', 'truck')
 
 # Model
 print('==> Building model..')
-net = VGGQ('VGG16')
+# net = VGGQ('VGG16')
+net = AlexNet2()
 
 net = net.to(device)
 if device == 'cuda':
     net = torch.nn.DataParallel(net)
     cudnn.benchmark = True
 
-# if args.resume:
-    # Load checkpoint.
-print('==> Resuming from checkpoint..')
-assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-checkpoint = torch.load('./checkpoint/ckpt.pth')
-net.load_state_dict(checkpoint['net'])
-start_epoch = checkpoint['epoch']
+# Load checkpoint.
+
+# print('==> Resuming from checkpoint..')
+# assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+# checkpoint = torch.load('./checkpoint/ckpt.pth')
+# net.load_state_dict(checkpoint['net'])
+
+# Use HPVM checkpoints
+assert os.path.isdir('model_params/pytorch'), 'Error: no checkpoint directory found!'
+checkpoint = torch.load('./model_params/pytorch/alexnet2_cifar10.pth.tar')
+
+print(checkpoint.keys())
+net.load_state_dict(checkpoint)
 
 net.eval()
 
-net.qconfig = torch.quantization.get_default_qconfig('fbgemm')
+# net.qconfig = torch.quantization.get_default_qconfig('fbgemm')
+net.qconfig = torch.quantization.QConfig(
+    activation=torch.quantization.MinMaxObserver.with_args(dtype=torch.quint8, qscheme=torch.per_tensor_symmetric), 
+    weight=torch.quantization.MinMaxObserver.with_args(dtype=torch.qint8, qscheme=torch.per_tensor_symmetric))
+
+# sanity check if the bias is zero
+# Why cannot the dtype=qint8 work for activation?
 
 net_fp32_prepared = torch.quantization.prepare(net)
-input_fp32 = torch.randn(100, 3, 32, 32)
+input_fp32 = torch.randn(500, 3, 32, 32)
 net_fp32_prepared(input_fp32)
 
 net_int8 = torch.quantization.convert(net_fp32_prepared)
@@ -69,6 +82,7 @@ def test():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
             # print(inputs.shape)
+            # outputs = net(inputs)
             outputs = net_int8(inputs)
 
             _, predicted = outputs.max(1)
