@@ -34,8 +34,12 @@ testloader = torch.utils.data.DataLoader(
 
 # Model
 print('==> Building model..')
+
+quantize = False
 # net = VGGQ('VGG16')
-net = AlexNet2()
+# net = AlexNet2()
+# net = ResNet18Q()
+net = ResNet18O()
 
 net = net.to(device)
 if device == 'cuda':
@@ -51,30 +55,32 @@ if device == 'cuda':
 
 # Use HPVM checkpoints
 assert os.path.isdir('model_params/pytorch'), 'Error: no checkpoint directory found!'
-checkpoint = torch.load('./model_params/pytorch/alexnet2_cifar10.pth.tar')
+# checkpoint = torch.load('./model_params/pytorch/alexnet2_cifar10.pth.tar')
+checkpoint = torch.load('./model_params/pytorch/resnet18_cifar10.pth.tar')
 
 print(checkpoint.keys())
 net.load_state_dict(checkpoint)
 
 net.eval()
 
-# net.qconfig = torch.quantization.get_default_qconfig('fbgemm')
-net.qconfig = torch.quantization.QConfig(
-    activation=torch.quantization.MinMaxObserver.with_args(dtype=torch.quint8, qscheme=torch.per_tensor_symmetric), 
-    weight=torch.quantization.MinMaxObserver.with_args(dtype=torch.qint8, qscheme=torch.per_tensor_symmetric))
+if quantize:
+    # net.qconfig = torch.quantization.get_default_qconfig('fbgemm')
+    net.qconfig = torch.quantization.QConfig(
+        activation=torch.quantization.MinMaxObserver.with_args(dtype=torch.quint8, qscheme=torch.per_tensor_symmetric), 
+        weight=torch.quantization.MinMaxObserver.with_args(dtype=torch.qint8, qscheme=torch.per_tensor_symmetric))
 
-# sanity check if the bias is zero
-# Why cannot the dtype=qint8 work for activation?
+    # sanity check if the bias is zero
+    # Why cannot the dtype=qint8 work for activation?
 
-net_fp32_prepared = torch.quantization.prepare(net)
-input_fp32 = torch.randn(500, 3, 32, 32)
-net_fp32_prepared(input_fp32)
+    net_fp32_prepared = torch.quantization.prepare(net)
+    input_fp32 = torch.randn(500, 3, 32, 32)
+    net_fp32_prepared(input_fp32)
 
-net_int8 = torch.quantization.convert(net_fp32_prepared)
+    net_int8 = torch.quantization.convert(net_fp32_prepared)
 
 
-def test():
-    net_int8.eval()
+def test(net):
+    net.eval()
     test_loss = 0
     correct = 0
     total = 0
@@ -83,7 +89,7 @@ def test():
             inputs, targets = inputs.to(device), targets.to(device)
             # print(inputs.shape)
             # outputs = net(inputs)
-            outputs = net_int8(inputs)
+            outputs = net(inputs)
 
             _, predicted = outputs.max(1)
             total += targets.size(0)
@@ -94,4 +100,8 @@ def test():
 
 
 # the main code
-test()
+if quantize:
+    test(net_int8)
+else:
+    test(net)
+
